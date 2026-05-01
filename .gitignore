@@ -1,0 +1,30 @@
+# Build output
+/bin/
+*.exe
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*-wal
+*-shm
+/data/
+
+# Certificates and keys
+/certs/
+*.pem
+*.key
+
+# Go
+vendor/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
