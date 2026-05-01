@@ -1,0 +1,23 @@
+server:
+  host: "0.0.0.0"
+  port: 8443
+  tls_cert: "/etc/ssl/certs/api.xuefz.cn.pem"
+  tls_key: "/etc/ssl/private/api.xuefz.cn-key.pem"
+
+webauthn:
+  rp_id: "xuefz.cn"
+  rp_display_name: "世界迷雾"
+  rp_origins:
+    - "https://xuefz.cn"
+    - "https://api.xuefz.cn"
+
+jwt:
+  secret: "REPLACE_WITH_32_BYTE_RANDOM_SECRET"
+  expiry_hrs: 720
+
+db:
+  path: "/var/lib/world-fog/world-fog.db"
+
+apple:
+  team_id: "ABCDE12345"
+  bundle_id: "cn.xuefz.worldfog"

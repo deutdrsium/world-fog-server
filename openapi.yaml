@@ -1,0 +1,425 @@
+openapi: "3.0.3"
+info:
+  title: "World Fog API (世界迷雾)"
+  version: "1.0.0"
+  description: |
+    世界迷雾 iOS 应用的服务端 API。
+    使用 Passkey（WebAuthn/FIDO2）进行无密码认证。
+    认证成功后颁发 JWT，后续请求通过 Bearer Token 鉴权。
+
+servers:
+  - url: "https://api.xuefz.cn"
+    description: "生产环境"
+  - url: "http://localhost:8443"
+    description: "本地开发"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "登录或注册完成后获得的 JWT Token"
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "session expired or not found"
+
+    RegisterBeginRequest:
+      type: object
+      required:
+        - display_name
+      properties:
+        display_name:
+          type: string
+          description: "用户的显示名称"
+          example: "张三"
+
+    RegisterBeginResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: "挑战会话 ID，需在 finish 请求中携带"
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        user_id:
+          type: string
+          format: uuid
+          description: "服务端为该用户生成的 UUID（需在 finish 请求中携带）"
+        display_name:
+          type: string
+          example: "张三"
+        public_key:
+          type: object
+          description: "WebAuthn CredentialCreationOptions（直接传给 iOS API）"
+
+    RegisterFinishRequest:
+      type: object
+      required:
+        - session_id
+        - user_id
+        - display_name
+        - credential
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: "begin 步骤返回的 session_id"
+        user_id:
+          type: string
+          format: uuid
+          description: "begin 步骤返回的 user_id"
+        display_name:
+          type: string
+          description: "用户显示名称（与 begin 一致）"
+        credential:
+          type: object
+          description: "iOS ASAuthorizationPlatformPublicKeyCredentialRegistration 结果，需转为标准 WebAuthn JSON 格式"
+          required:
+            - id
+            - rawId
+            - type
+            - response
+          properties:
+            id:
+              type: string
+              description: "base64url 编码的 Credential ID"
+            rawId:
+              type: string
+              description: "base64url 编码的原始 Credential ID"
+            type:
+              type: string
+              enum:
+                - public-key
+            response:
+              type: object
+              required:
+                - clientDataJSON
+                - attestationObject
+              properties:
+                clientDataJSON:
+                  type: string
+                  description: "base64url 编码的 clientDataJSON"
+                attestationObject:
+                  type: string
+                  description: "base64url 编码的 attestationObject"
+                transports:
+                  type: array
+                  items:
+                    type: string
+                  description: "可选，认证器传输方式列表（internal, hybrid 等）"
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: "JWT Bearer Token，有效期默认 30 天"
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        user_id:
+          type: string
+          format: uuid
+          description: "已认证用户的 UUID"
+
+    LoginBeginResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: "挑战会话 ID，需在 finish 请求中携带"
+        public_key:
+          type: object
+          description: "WebAuthn CredentialAssertionOptions（直接传给 iOS API）"
+
+    LoginFinishRequest:
+      type: object
+      required:
+        - session_id
+        - credential
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: "begin 步骤返回的 session_id"
+        credential:
+          type: object
+          description: "iOS ASAuthorizationPlatformPublicKeyCredentialAssertion 结果，需转为标准 WebAuthn JSON 格式"
+          required:
+            - id
+            - rawId
+            - type
+            - response
+          properties:
+            id:
+              type: string
+              description: "base64url 编码的 Credential ID"
+            rawId:
+              type: string
+            type:
+              type: string
+              enum:
+                - public-key
+            response:
+              type: object
+              required:
+                - clientDataJSON
+                - authenticatorData
+                - signature
+              properties:
+                clientDataJSON:
+                  type: string
+                  description: "base64url 编码"
+                authenticatorData:
+                  type: string
+                  description: "base64url 编码"
+                signature:
+                  type: string
+                  description: "base64url 编码"
+                userHandle:
+                  type: string
+                  description: "base64url 编码的 userHandle（即 user.id 的 base64url）"
+
+    UserResponse:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        credential_count:
+          type: integer
+          description: "该用户已注册的 Passkey 数量"
+
+    AppleAppSiteAssociation:
+      type: object
+      properties:
+        webcredentials:
+          type: object
+          properties:
+            apps:
+              type: array
+              items:
+                type: string
+              example:
+                - "ABCDE12345.cn.xuefz.worldfog"
+
+paths:
+  /api/v1/auth/register/begin:
+    post:
+      tags:
+        - auth
+      summary: "开始 Passkey 注册"
+      description: |
+        创建 WebAuthn 注册挑战。返回的 `public_key` 字段为标准
+        `PublicKeyCredentialCreationOptions`，直接传给 iOS 的
+        `ASAuthorizationPlatformPublicKeyCredentialProvider.createCredentialRegistrationRequest(challenge:)`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterBeginRequest'
+      responses:
+        '200':
+          description: "注册挑战生成成功"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterBeginResponse'
+        '400':
+          description: "请求参数错误"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: "服务器内部错误"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/register/finish:
+    post:
+      tags:
+        - auth
+      summary: "完成 Passkey 注册"
+      description: |
+        验证 iOS 的 Passkey 注册结果，将凭证写入数据库，返回 JWT。
+
+        iOS 端需将 `ASAuthorizationPlatformPublicKeyCredentialRegistration` 的结果
+        序列化为标准 WebAuthn JSON 格式（`id`/`rawId` 用 base64url 编码，
+        `clientDataJSON`/`attestationObject` 同样用 base64url 编码）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterFinishRequest'
+      responses:
+        '200':
+          description: "注册成功，返回 JWT"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: "凭证验证失败或会话已过期"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: "服务器内部错误"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/login/begin:
+    post:
+      tags:
+        - auth
+      summary: "开始 Passkey 登录（可发现凭证模式）"
+      description: |
+        创建 WebAuthn 认证挑战。不需要请求体。返回的 `public_key` 为
+        `PublicKeyCredentialRequestOptions`，直接传给 iOS 的
+        `ASAuthorizationPlatformPublicKeyCredentialProvider.createCredentialAssertionRequest(challenge:)`。
+
+        iOS 会自动展示该设备上所有属于 `xuefz.cn` 的 Passkey 供用户选择。
+      responses:
+        '200':
+          description: "登录挑战生成成功"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginBeginResponse'
+        '500':
+          description: "服务器内部错误"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/login/finish:
+    post:
+      tags:
+        - auth
+      summary: "完成 Passkey 登录"
+      description: |
+        验证 iOS 的 Passkey 断言，返回 JWT。
+
+        iOS 端将 `ASAuthorizationPlatformPublicKeyCredentialAssertion` 的结果
+        序列化为标准 WebAuthn JSON 格式后提交。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginFinishRequest'
+      responses:
+        '200':
+          description: "登录成功，返回 JWT"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: "请求格式错误或会话已过期"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: "Passkey 验证失败"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: "服务器内部错误"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/me:
+    get:
+      tags:
+        - user
+      summary: "获取当前用户信息"
+      description: "返回已认证用户的基本信息及已注册 Passkey 数量。"
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "用户信息"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: "Token 无效或已过期"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: "用户不存在"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /.well-known/apple-app-site-association:
+    get:
+      tags:
+        - well-known
+      summary: "Apple App Site Association"
+      description: |
+        供 iOS 验证关联域（Associated Domains）使用。
+        此文件必须在 `https://xuefz.cn/.well-known/apple-app-site-association` 可访问。
+
+        若 Go 服务部署在 `api.xuefz.cn`，请在 `xuefz.cn` 的 nginx/Caddy 中配置
+        反向代理将该路径转发到 Go 服务。
+      responses:
+        '200':
+          description: "AASA 文件内容"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppleAppSiteAssociation'
+
+  /.well-known/webauthn:
+    get:
+      tags:
+        - well-known
+      summary: "WebAuthn Related Origin Requests"
+      description: "WebAuthn ROR 支持（预留，当前返回空列表）。"
+      responses:
+        '200':
+          description: "关联来源列表"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  origins:
+                    type: array
+                    items:
+                      type: string
+
+tags:
+  - name: auth
+    description: "Passkey 注册与登录"
+  - name: user
+    description: "用户信息"
+  - name: well-known
+    description: "系统级 Well-Known 端点"
