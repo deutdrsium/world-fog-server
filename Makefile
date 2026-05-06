@@ -1,7 +1,10 @@
-.PHONY: build run test tidy docker docker-run
+.PHONY: build build-debian run test tidy docker docker-run
 
 build:
 	CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/world-fog ./cmd/server
+
+build-debian:
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/world-fog-linux-amd64 ./cmd/server
 
 run:
 	WF_JWT_SECRET=dev-secret-32-bytes-change-me \

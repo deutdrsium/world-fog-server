@@ -50,6 +50,7 @@ func main() {
 	userStore := store.NewUserStore(database)
 	credStore := store.NewCredentialStore(database)
 	sessStore := store.NewSessionStore(database)
+	fogTileStore := store.NewFogTileStore(database)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -66,8 +67,9 @@ func main() {
 	authH := handler.NewAuthHandler(wa, database, userStore, credStore, sessStore, tm)
 	meH := handler.NewMeHandler(userStore)
 	wkH := handler.NewWellKnownHandler(&cfg.Apple)
+	fogH := handler.NewFogHandler(fogTileStore)
 
-	r := buildRouter(cfg, authH, meH, wkH, tm)
+	r := buildRouter(cfg, authH, meH, wkH, fogH, tm)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
@@ -109,6 +111,7 @@ func buildRouter(
 	authH *handler.AuthHandler,
 	meH *handler.MeHandler,
 	wkH *handler.WellKnownHandler,
+	fogH *handler.FogHandler,
 	tm *token.Manager,
 ) http.Handler {
 	r := chi.NewRouter()
@@ -134,6 +137,9 @@ func buildRouter(
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(mw.Authenticate(tm))
 		r.Get("/me", meH.GetMe)
+		r.Get("/fog/tiles", fogH.ListTiles)
+		r.Get("/fog/tiles/{z}/{x}/{y}", fogH.GetTile)
+		r.Put("/fog/tiles/{z}/{x}/{y}", fogH.PutTile)
 	})
 
 	return r

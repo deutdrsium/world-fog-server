@@ -197,6 +197,35 @@ components:
           type: integer
           description: "该用户已注册的 Passkey 数量"
 
+    FogTileMeta:
+      type: object
+      properties:
+        tile_key:
+          type: string
+          example: "12/3381/1552"
+        version:
+          type: integer
+          format: int64
+          description: "单 tile 版本号，用于乐观并发控制"
+        checksum:
+          type: string
+          description: "客户端提供或服务端计算的 blob SHA-256"
+        size_bytes:
+          type: integer
+          description: "密文 blob 字节数"
+        updated_at_ms:
+          type: integer
+          format: int64
+          description: "服务端更新时间，Unix 毫秒"
+
+    FogTileListResponse:
+      type: object
+      properties:
+        tiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/FogTileMeta'
+
     AppleAppSiteAssociation:
       type: object
       properties:
@@ -241,6 +270,143 @@ paths:
                 $ref: '#/components/schemas/Error'
         '500':
           description: "服务器内部错误"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/fog/tiles:
+    get:
+      tags:
+        - fog
+      summary: "列出迷雾 tile 元信息"
+      description: |
+        返回当前用户的迷雾 tile 元信息。服务端只保存客户端压缩加密后的 blob，
+        不解密、不解压、不做区块级合并。推荐客户端 tile 面积为 10km x 10km，
+        tile 内部用 100m x 100m 网格 bitmap 表示点亮状态。
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: integer
+            format: int64
+            default: 0
+          description: "只返回 updated_at_ms 大于该值的 tile"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 500
+            maximum: 1000
+      responses:
+        '200':
+          description: "tile 元信息列表"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FogTileListResponse'
+
+  /api/v1/fog/tiles/{z}/{x}/{y}:
+    get:
+      tags:
+        - fog
+      summary: "下载迷雾 tile blob"
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: z
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: x
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: y
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: "压缩加密后的二进制 blob"
+          headers:
+            X-Fog-Tile-Version:
+              schema:
+                type: integer
+            X-Fog-Tile-Checksum:
+              schema:
+                type: string
+            X-Fog-Tile-Updated-At:
+              schema:
+                type: integer
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: "tile 不存在"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      tags:
+        - fog
+      summary: "上传迷雾 tile blob"
+      description: |
+        上传客户端压缩加密后的 tile blob。新 tile 使用 `X-Fog-Tile-Version: 0`。
+        若版本冲突返回 409，客户端应下载远端 blob，本地 OR 合并后再上传。
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: z
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: x
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: y
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: X-Fog-Tile-Version
+          in: header
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: X-Fog-Tile-Checksum
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: "保存成功"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FogTileMeta'
+        '409':
+          description: "版本冲突"
           content:
             application/json:
               schema:

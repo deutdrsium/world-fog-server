@@ -59,6 +59,9 @@ go run ./cmd/server --config configs/config.yaml
 # 构建
 make build
 
+# 交叉编译 Debian amd64 版本
+make build-debian
+
 # 运行（TLS 由 Go 层处理）
 WF_JWT_SECRET=<32字节随机字符串> \
 WF_SERVER_TLS_CERT=/etc/ssl/certs/api.xuefz.cn.pem \
@@ -218,6 +221,50 @@ let authResponse = try await apiClient.registerFinish(body: finishBody)
 ### 4. JWT 存储
 
 请将 JWT 存储在 **iOS Keychain**（`SecItemAdd`），不要存在 `UserDefaults`。
+
+---
+
+## 迷雾数据同步
+
+服务端把迷雾进度作为用户私有二进制 blob 存储，不解密、不解压、不做区块级合并。客户端负责把本地 100m 点亮网格按地图 tile 分片，压缩加密后上传。
+
+### 数据模型
+
+- `tile_key`: `{z}/{x}/{y}`，例如 `12/3381/1552`
+- `blob`: 客户端压缩加密后的二进制数据
+- `version`: 单 tile 单调递增版本，用于乐观并发控制
+- `checksum`: 客户端提供或服务端按 blob 计算的 SHA-256
+
+### API
+
+所有接口都需要 `Authorization: Bearer <JWT>`。
+
+```http
+GET /api/v1/fog/tiles?since=0&limit=500
+```
+
+返回 tile 元信息列表，用于增量同步。
+
+```http
+GET /api/v1/fog/tiles/{z}/{x}/{y}
+```
+
+返回 `application/octet-stream` blob。响应头包含：
+
+- `X-Fog-Tile-Version`
+- `X-Fog-Tile-Checksum`
+- `X-Fog-Tile-Updated-At`
+
+```http
+PUT /api/v1/fog/tiles/{z}/{x}/{y}
+X-Fog-Tile-Version: 0
+X-Fog-Tile-Checksum: <sha256>
+Content-Type: application/octet-stream
+
+<encrypted compressed blob>
+```
+
+`X-Fog-Tile-Version` 是客户端基于的远端版本；新 tile 使用 `0`。版本不匹配返回 `409`，客户端应下载远端 blob，本地 OR 合并后再上传。
 
 ---
 
